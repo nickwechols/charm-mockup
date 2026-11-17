@@ -1,0 +1,7 @@
+{
+  "name": "charm-mockup",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "start": "node serve.js" },
+  "engines": { "node": ">=18" }
+}

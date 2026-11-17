@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>charm mockup</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  #stage{margin-left:320px}
+  body.studio-open #stage #bar{left:50%}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body class="studio-open">
+<main id="stage">
+  <div id="frame"></div>
+  <nav id="bar">
+    <button class="tp-play" aria-label="Play"><svg viewBox="0 0 16 16"><path class="pl" d="M5 3.5v9l7.5-4.5z"/><path class="pa" d="M4.5 3.5h2.5v9H4.5zM9 3.5h2.5v9H9z"/></svg></button>
+    <div class="tp-track"><i></i><input type="range" min="0" max="1000" value="0" aria-label="Scrub"></div>
+    <span class="tp-time">0.0 / 0.0s</span>
+  </nav>
+</main>
+<div id="drop">Drop screen recordings or images</div>
+<input type="file" id="mediaFile" accept="video/*,image/*" multiple hidden>
+<input type="file" id="bgFile" accept="image/*" hidden>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
