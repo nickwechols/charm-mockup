@@ -265,7 +265,7 @@ export function setBackdrop(v, check = false) {
 export function resize() {
   if (!renderer) return;
   const host = wrapEl.parentElement.getBoundingClientRect(), pad = 24;
-  let w = host.width - pad * 2, h = host.height - pad * 2;
+  let w = Math.max(40, host.width - pad * 2), h = Math.max(40, host.height - pad * 2);
   if (frameAspect) { if (w / h > frameAspect) w = Math.round(h * frameAspect); else h = Math.round(w / frameAspect); }
   Object.assign(wrapEl.style, { width: w + 'px', height: h + 'px' });
   renderer.setSize(w, h, false); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%';

@@ -422,7 +422,7 @@ let customBgUrl = null;
 const bgv = v => v === 'custom' ? customBgUrl || '#ffffff' : v;   // 'custom' = the uploaded background photo, kept in IndexedDB
 panel.addEventListener('click', e => {
   const t = e.target;
-  const tab = t.closest('[data-tab]'); if (tab) return setTab(tab.dataset.tab);
+  const tab = t.closest('.st-tabs [data-tab]'); if (tab) return setTab(tab.dataset.tab);   // not the panel itself: it carries data-tab too
   const del = t.closest('[data-mdel]'); if (del) { e.stopPropagation(); return removeMedia(del.dataset.mdel); }
   const md = t.closest('[data-media]'); if (md) return assign(ST.sel, md.dataset.media || null);
   if (t.closest('[data-madd]')) { fileTarget = ST.sel; return $('#mediaFile').click(); }
