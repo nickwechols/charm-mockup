@@ -274,6 +274,19 @@ export function getView() {
   return { cam: camera.position.toArray(), target: target.toArray(), prot: [rig.rotation.x, rig.rotation.y, rig.rotation.z], fov: camera.fov, ppos: rig.position.toArray() };
 }
 export function freeAt(v) { pose = null; glide = null; controls.enabled = true; rig.rotation.set(...v.prot); rig.position.set(...(v.ppos || [0, 0, 0])); camera.position.fromArray(v.cam); controls.target.fromArray(v.target); camera.fov = v.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(controls.target); markDirty(); }
+/* centre of all phones, in world space */
+function phonesCenter() { rig.updateMatrixWorld(); const b = new THREE.Box3(); phones.forEach(p => b.expandByObject(p.hit)); return b.getCenter(new THREE.Vector3()); }
+/* keep the camera's angle, slide it so the phones sit in the middle of the frame */
+export function aimAtCenter(ms = 500) {
+  const c = phonesCenter(), d = c.clone().sub(controls.target);
+  glideTo({ cam: camera.position.clone().add(d).toArray(), target: c.toArray(), prot: [rig.rotation.x, rig.rotation.y, rig.rotation.z], fov: camera.fov }, ms);
+}
+/* look at the phones dead-on, at the current distance */
+export function faceCamera(ms = 550) {
+  const c = phonesCenter(), dist = clampN(camera.position.distanceTo(controls.target), 9, 45);
+  glideTo({ cam: [c.x, c.y, c.z + dist], target: c.toArray(), prot: [0, 0, 0], fov: camera.fov }, ms);
+}
+const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 export function glideTo(p, ms = 700) {
   pose = null; controls.enabled = true; rig.position.set(0, 0, 0);
   const a = currentView(), b = poseToView(p), t0 = performance.now(), L = (x, y, k) => x + (y - x) * k;

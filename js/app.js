@@ -77,7 +77,7 @@ const POSEFMT = { deg: v => Math.round(v) + '°', cm: v => (v > 0.04 ? '+' : '')
 
 /* ------------------------------------------------------------------ state */
 const ST = { tab: 'video', layout: 'single', poses: [P()], sel: 0, mirror: true, assign: [null], seq: 'orbit', autoLen: true, len: 8, zoom: 1, motion: 1, frame: 0, lockCam: false,
-  fmt: '9:16', vres: 1, fps: 30, pan: [0, 0], blur: true, cleanDot: true, seq: 'burst', angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
+  fmt: '9:16', vres: 1, fps: 30, pan: [0, 0], cin: 'burst', chold: 'still', cout: 'none', ctime: 'normal', blur: true, cleanDot: true, seq: 'burst', angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
   look: { lightPreset: 'studio', ...LIGHTS[0].v, backdrop: '#ffffff' } };
 try { const o = JSON.parse(localStorage.getItem('charm-mockup') || '{}'); Object.assign(ST, o, { look: { ...ST.look, ...(o.look || {}) } }); } catch {}
 const save = () => { try { localStorage.setItem('charm-mockup', JSON.stringify(ST)); } catch {} };
@@ -135,8 +135,39 @@ const assignedVideos = () => [...new Set(ST.assign.filter(Boolean))].map(id => M
 const CH = ['rx', 'ry', 'rz', 'dist', 'camY', 'tY', 'fov', 'py', 'px'], DEF = { rx: 0, ry: 0, rz: 0, dist: 23, camY: 0.6, tY: -0.2, fov: 26, py: 0, px: 0 };
 const NEUTRAL = { rx: 0.03, ry: 0, rz: 0, camY: 0.6, tY: -0.2 };
 const length = () => ST.autoLen ? Math.max(0, ...assignedVideos().map(m => m.dur)) || ST.len : ST.len;
+/* build your own: an In, a Hold and an Out. The hold is dead-centre and straight on, so the screen reads clean. */
+const HOLD = { ry: 0, rx: 0, rz: 0, dist: 24, camY: 0, tY: 0, px: 0, py: 0 };
+const C_IN = {
+  none: { name: 'None' },
+  burst: { name: 'Burst', ease: 'out', p: { ry: 2.5, rx: -0.4, rz: 0.45, dist: 74, camY: 7, tY: 0.4 } },
+  spin: { name: 'Spin', ease: 'out', p: { ry: -Math.PI * 2, rx: 0.1, dist: 34, camY: 1.5 } },
+  drop: { name: 'Drop', ease: 'back', p: { rx: 1.35, ry: 0.3, rz: -0.2, dist: 32, camY: 12, tY: -1.5 } },
+  rise: { name: 'Rise', ease: 'back', p: { rx: -1.4, ry: 0.2, rz: 0.12, dist: 25, camY: 5, tY: -0.6 } },
+  slide: { name: 'Slide', ease: 'out', p: { px: -14, ry: 0.5 } },
+  zoom: { name: 'Zoom', ease: 'out', p: { dist: 95 } },
+  flip: { name: 'Flip', ease: 'out', p: { rx: -Math.PI, dist: 30 } },
+};
+const C_OUT = {
+  none: { name: 'None' },
+  burst: { name: 'Burst', p: { ry: -2.4, rx: 0.35, rz: -0.3, dist: 80, camY: -4, tY: 1 } },
+  spin: { name: 'Spin', p: { ry: Math.PI * 2, rx: 0.1, dist: 34, camY: 1.5 } },
+  fall: { name: 'Fall', p: { py: -16, rx: 0.4 } },
+  fly: { name: 'Fly up', p: { py: 16, rx: -0.4 } },
+  slide: { name: 'Slide', p: { px: 14, ry: -0.5 } },
+  zoom: { name: 'Zoom', p: { dist: 95 } },
+  flip: { name: 'Flip', p: { rx: Math.PI, dist: 30 } },
+};
+const C_HOLD = { still: { name: 'Still', p: {} }, float: { name: 'Float', p: { ry: 0.09, rx: -0.03, py: 0.15 } }, push: { name: 'Push in', p: { dist: 19.5 } } };
+const C_TIME = { snappy: 0.7, normal: 1.1, slow: 1.6 };
+function customKeys() {
+  const i = C_IN[ST.cin] || C_IN.none, o = C_OUT[ST.cout] || C_OUT.none, h = { ...HOLD, ...(C_HOLD[ST.chold] || C_HOLD.still).p }, d = C_TIME[ST.ctime] || 1.1;
+  const keys = [];
+  if (i.p) keys.push({ s: 0, ...HOLD, ...i.p }, { s: d, ease: i.ease, ...HOLD }); else keys.push({ u: 0, ...HOLD });
+  if (o.p) keys.push({ e: d, ease: 'smooth', ...h }, { u: 1, ease: 'in', ...h, ...o.p }); else keys.push({ u: 1, ease: 'smooth', ...h });
+  return keys;
+}
 function keysFor(T) {
-  const seq = SEQS.find(s => s.id === ST.seq) || SEQS[0];
+  const seq = ST.seq === 'custom' ? { keys: customKeys() } : SEQS.find(s => s.id === ST.seq) || SEQS[0];
   // fixed-second parts of the move take at most 40% of the clip; on short clips they shrink together
   const fixed = Math.max(0, ...seq.keys.map(k => k.s ?? 0), ...seq.keys.map(k => k.e ?? 0), ...seq.keys.map(k => Math.abs(k.m ?? 0) * 2 + (k.plus ?? 0)));
   const sc = fixed ? Math.min(1, T * 0.4 / fixed) : 1;
@@ -313,7 +344,8 @@ panel.innerHTML = `
         <div class="st-pick"></div>
         <p class="st-note">Click a phone, here or in the shot, to choose its screen and pose it.</p>
       </div>
-      <h3 class="st-poseh">Position<span class="st-for"></span></h3>
+      <div class="st-posebar"><h3 class="st-poseh">Position<span class="st-for"></span></h3>
+        <div class="st-posebtns"><button data-center title="Put the phone in the middle of the frame (C)">Center</button><button data-facefront title="Turn the phone square to the camera (F)">Face front</button></div></div>
         <div class="st-pose">${POSE.map(([k, l, a, b, s]) => slider(k, l, a, b, s, 'data-pose')).join('')}
           <label class="st-row st-mirror"><span>Mirror to phone <b class="st-mate"></b></span><input type="checkbox" data-mirror></label>
           <button class="st-link" data-posereset>Reset this phone</button>
@@ -325,6 +357,13 @@ panel.innerHTML = `
     <div class="st-pane" data-pane="video">
       <section><h3>Camera move</h3>
         <p class="st-lockwarn">The camera is locked, so moves don't play. <button data-unlock>Unlock</button></p>
+        <div class="st-custom" data-custom>
+          <div class="st-custom-h"><b>Build your own</b><small>The screen holds still and centred between the In and the Out.</small></div>
+          <div class="st-crow"><span>In</span><div class="st-chips" data-cgroup="cin">${Object.entries(C_IN).map(([v, x]) => `<button data-v="${v}">${x.name}</button>`).join('')}</div></div>
+          <div class="st-crow"><span>Hold</span><div class="st-chips" data-cgroup="chold">${Object.entries(C_HOLD).map(([v, x]) => `<button data-v="${v}">${x.name}</button>`).join('')}</div></div>
+          <div class="st-crow"><span>Out</span><div class="st-chips" data-cgroup="cout">${Object.entries(C_OUT).map(([v, x]) => `<button data-v="${v}">${x.name}</button>`).join('')}</div></div>
+          <div class="st-crow"><span>Timing</span><div class="st-chips" data-cgroup="ctime"><button data-v="snappy">Snappy</button><button data-v="normal">Normal</button><button data-v="slow">Slow</button></div></div>
+        </div>
         <div class="st-seqs"></div></section>
       <section><h3>Length</h3>
         <div class="st-row"><span>Video length</span>${seg('lenp', [['rec', 'Recording'], [5, '5s'], [10, '10s'], [15, '15s'], [30, '30s']])}</div>
@@ -413,7 +452,12 @@ function renderPose() {
   POSE.forEach(([k, , , , , f]) => { const v = k[0] === 'r' ? p[k] / D2R : p[k], el = $(`[data-pose="${k}"]`, panel); if (document.activeElement !== el) el.value = v; $(`[data-out="${k}"]`, panel).textContent = POSEFMT[f](v); });
   const j = partner(ST.sel); $('.st-mirror', panel).hidden = j < 0; if (j >= 0) { $('.st-mate', panel).textContent = j + 1; $('[data-mirror]', panel).checked = ST.mirror; }
 }
+function renderCustom() {
+  $('[data-custom]', panel).classList.toggle('on', ST.seq === 'custom');
+  $$('[data-cgroup]', panel).forEach(g => $$('button', g).forEach(b => b.classList.toggle('on', ST[g.dataset.cgroup] === b.dataset.v)));
+}
 function renderSeqs() {
+  renderCustom();
   const item = s => `<button class="st-seq${s.id === ST.seq ? ' on' : ''}" data-seq="${s.id}"><span><b>${s.name}</b><small>${s.desc}</small></span><em>${TL.T.toFixed(1)}s</em></button>`;
   $('.st-seqs', panel).innerHTML = `<h4 class="st-sub">Speed ramps</h4>${SEQS.filter(s => s.ramp).map(item).join('')}<h4 class="st-sub">Steady</h4>${SEQS.filter(s => !s.ramp).map(item).join('')}`;
 }
@@ -497,6 +541,10 @@ panel.addEventListener('click', e => {
   const ph = t.closest('[data-phone]'); if (ph) return selectPhone(+ph.dataset.phone);
   if (t.closest('[data-posereset]')) { pushHistory(); const L = layoutOf(ST.layout), i = ST.sel, j = partner(i); [i, j].forEach(k => { if (k >= 0 && L.phones[k]) { ST.poses[k] = { ...L.phones[k] }; V.placePhone(k, ST.poses[k]); } }); save(); return renderPhones(); }
   const fin = t.closest('[data-finish]'); if (fin) { ST.finish = fin.dataset.finish; V.setFinish(ST.finish); save(); return renderPhones(); }
+  const cb = t.closest('[data-cgroup] button');
+  if (cb) { ST[cb.parentNode.dataset.cgroup] = cb.dataset.v; ST.seq = 'custom'; ST.lockCam = false; save(); renderControls(); TL.t = 0; rebuild(); return play(); }
+  if (t.closest('[data-center]')) return centerPhone();
+  if (t.closest('[data-facefront]')) return faceFront();
   // picking a move means "play this move": a locked camera (easy to lock by dragging empty space) would ignore it
   const sq = t.closest('[data-seq]'); if (sq) { ST.seq = sq.dataset.seq; ST.lockCam = false; save(); renderControls(); TL.t = 0; rebuild(); return play(); }
   if (t.closest('[data-unlock]')) { ST.lockCam = false; save(); renderControls(); return seek(TL.t); }
@@ -543,12 +591,29 @@ addEventListener('keydown', e => {
   const turn = e.altKey, step = 0.1 * big, deg = 2 * big * D2R;
   const m = { ArrowLeft: turn ? { ry: p.ry - deg } : { x: p.x - step }, ArrowRight: turn ? { ry: p.ry + deg } : { x: p.x + step },
     ArrowUp: turn ? { rx: p.rx - deg } : { y: p.y + step }, ArrowDown: turn ? { rx: p.rx + deg } : { y: p.y - step },
+    c: 'center', C: 'center', f: 'front', F: 'front',
     '[': { s: clamp(p.s - 0.02 * big, 0.3, 2) }, ']': { s: clamp(p.s + 0.02 * big, 0.3, 2) }, '{': { s: clamp(p.s - 0.1, 0.3, 2) }, '}': { s: clamp(p.s + 0.1, 0.3, 2) } }[e.key];
-  if (!m) return;
+  if (!m || e.metaKey || e.ctrlKey) return;
   e.preventDefault();
+  if (m === 'center') return centerPhone();
+  if (m === 'front') return faceFront();
   if (performance.now() - lastNudge > 700) pushHistory(); lastNudge = performance.now();
   setPose(m); renderPose();
 });
+/* Center: the phone (or the whole group) goes to the middle of the frame; pan and framing reset.
+   Face front: the selected phone turns square to the camera (in Photo or with a locked camera, the camera squares up too). */
+function centerPhone() {
+  pushHistory();
+  if (ST.poses.length === 1) setPose({ x: 0, y: 0, z: 0 });
+  ST.pan = [0, 0]; V.setPan(0, 0); ST.frame = 0; V.setShift(0); save(); renderControls(); renderPose();
+  if (ST.tab === 'photo' || ST.lockCam) V.aimAtCenter(); else seek(TL.t);
+  toast('Centered');
+}
+function faceFront() {
+  pushHistory(); setPose({ rx: 0, ry: 0, rz: 0 }); renderPose();
+  if (ST.tab === 'photo' || ST.lockCam) V.faceCamera(); else seek(TL.t);
+  toast('Facing front');
+}
 /* undo / redo for phone positions */
 const HIST = [], REDO = [];
 function pushHistory() { HIST.push(JSON.stringify(ST.poses)); if (HIST.length > 200) HIST.shift(); REDO.length = 0; }
