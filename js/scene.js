@@ -84,7 +84,7 @@ export function init(host) {
   hitGeo = new THREE.BoxGeometry(OW, OH, DEPTH + 30); hitMat = new THREE.MeshBasicMaterial();
   placeholder = placeholderTex();
   setPhones([{}], 1, 0); applyLook(look); rig.rotation.set(0.03, 0.3, 0);
-  initPick();
+  initInteract();
   addEventListener('resize', resize); resize();
   requestAnimationFrame(loop);
 }
@@ -220,7 +220,7 @@ export function paintBg(g, w, h, v) {
 }
 
 /* ---------------------------------------------------------------- camera */
-let pose = null, glide = null, shift = 0;
+let pose = null, glide = null, shift = 0, panX = 0, panY = 0;   // pan: framing offset as a fraction of the frame (Space-drag), exported too
 export function applyPose(p) {
   if (p.cam) { rig.rotation.set(...p.prot); rig.position.set(...(p.ppos || [0, 0, 0])); camera.position.set(...p.cam); camera.fov = p.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(...p.target); return; }
   rig.rotation.set(p.rx, p.ry, p.rz); rig.position.set(p.px || 0, p.py || 0, 0);
@@ -248,7 +248,8 @@ export function glideTo(p, ms = 700) {
   markDirty();
 }
 export function setShift(x) { shift = x; markDirty(); }
-function applyShift(w, h) { if (Math.abs(shift) < 1e-4) camera.clearViewOffset(); else camera.setViewOffset(w, h, -shift * w * 0.22, 0, w, h); }
+function applyShift(w, h) { if (Math.abs(shift) < 1e-4 && !panX && !panY) camera.clearViewOffset(); else camera.setViewOffset(w, h, -shift * w * 0.22 - panX * w, -panY * h, w, h); }
+export function setPan(x, y) { panX = x || 0; panY = y || 0; markDirty(); }
 
 /* ---------------------------------------------------------------- live view */
 let frameAspect = null, backdrop = '#ffffff', checker = false, playing = false;
@@ -281,29 +282,54 @@ function loop(now) {
   applyShift(w, h); fadeFloor(); renderer.render(scene, camera);
 }
 
-/* ---------------------------------------------------------------- picking: click a phone to select it */
-export let onPick = null;
-export const setOnPick = f => { onPick = f; };
+/* ---------------------------------------------------------------- direct manipulation
+   drag a phone: it follows the cursor (in the plane facing the camera)   option-drag: turn it   shift-drag: closer / further
+   drag empty space: orbit the camera   Space-drag: pan the framing   double-click empty space: reset the view */
+export const hooks = { pick: null, dragStart: null, poseDrag: null, dragEnd: null, pan: null, panEnd: null, orbit: null, reset: null };
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-export function pickAt(cx, cy) {
-  const r = renderer.domElement.getBoundingClientRect();
-  ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
-  ray.setFromCamera(ndc, camera); rig.updateMatrixWorld();
-  const h = ray.intersectObjects(phones.map(p => p.hit), false)[0];
-  return h ? phones.findIndex(p => p.hit === h.object) : -1;
-}
-function initPick() {
-  const el = renderer.domElement; let down = null;
-  el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; el.classList.add('grabbing'); });
-  addEventListener('pointerup', e => {
-    el.classList.remove('grabbing');
-    const d = down; down = null; if (!d || phones.length < 2) return;
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || performance.now() - d.t > 600) return;
-    const i = pickAt(e.clientX, e.clientY); if (i >= 0 && onPick) onPick(i);
+function castAt(cx, cy) { const r = renderer.domElement.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); rig.updateMatrixWorld(); return ray; }
+function hitAt(cx, cy) { const h = castAt(cx, cy).intersectObjects(phones.map(p => p.hit), false)[0]; return h ? { i: phones.findIndex(p => p.hit === h.object), point: h.point } : null; }
+export function pickAt(cx, cy) { const h = hitAt(cx, cy); return h ? h.i : -1; }
+let spaceHeld = false, spaceUsed = false;
+export const spaceWasUsed = () => spaceUsed;
+const editing = () => { const a = document.activeElement; return a && (a.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'range' && a.type !== 'checkbox'); };
+function initInteract() {
+  const frame = wrapEl, plane = new THREE.Plane(), hp = new THREE.Vector3(), cl = (v, a, b) => Math.min(b, Math.max(a, v));
+  let drag = null;
+  frame.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    if (spaceHeld) { drag = { mode: 'pan', x: e.clientX, y: e.clientY, px: panX, py: panY }; spaceUsed = true; }
+    else {
+      const h = hitAt(e.clientX, e.clientY);
+      if (!h) { if (pose) hooks.orbit?.(); return; }            // empty space: OrbitControls takes it (after an unlock, if a camera move was driving)
+      if (h.i !== sel) hooks.pick?.(h.i);
+      hooks.dragStart?.();
+      const p = phones[h.i].pose;
+      if (e.altKey) drag = { mode: 'turn', i: h.i, x: e.clientX, y: e.clientY, pose: { ...p } };
+      else if (e.shiftKey) drag = { mode: 'depth', i: h.i, y: e.clientY, pose: { ...p } };
+      else { plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), h.point); drag = { mode: 'move', i: h.i, start: rig.worldToLocal(h.point.clone()), pose: { ...p } }; }
+    }
+    e.stopPropagation(); e.preventDefault(); frame.setPointerCapture(e.pointerId); frame.classList.add('dragging');
+  }, true);
+  frame.addEventListener('pointermove', e => {
+    if (!drag) { if (!e.buttons) frame.classList.toggle('over-phone', !spaceHeld && pickAt(e.clientX, e.clientY) >= 0); return; }
+    if (drag.mode === 'pan') { const r = renderer.domElement.getBoundingClientRect(); setPan(drag.px + (e.clientX - drag.x) / r.width, drag.py + (e.clientY - drag.y) / r.height); hooks.pan?.(panX, panY); return; }
+    if (drag.mode === 'turn') return hooks.poseDrag?.(drag.i, { ry: drag.pose.ry + (e.clientX - drag.x) * 0.006, rx: cl(drag.pose.rx + (e.clientY - drag.y) * 0.006, -1.5, 1.5) });
+    if (drag.mode === 'depth') return hooks.poseDrag?.(drag.i, { z: cl(drag.pose.z + (e.clientY - drag.y) * 0.04, -20, 10) });
+    if (!castAt(e.clientX, e.clientY).ray.intersectPlane(plane, hp)) return;
+    const l = rig.worldToLocal(hp.clone());
+    hooks.poseDrag?.(drag.i, { x: drag.pose.x + l.x - drag.start.x, y: drag.pose.y + l.y - drag.start.y, z: drag.pose.z + l.z - drag.start.z });
   });
-  el.addEventListener('pointermove', e => { if (e.buttons) return; const i = phones.length > 1 ? pickAt(e.clientX, e.clientY) : -1; el.classList.toggle('pick', i >= 0 && i !== sel); });
-  el.addEventListener('dblclick', () => glideTo({ cam: HOME.pos.toArray(), target: HOME.target.toArray(), prot: [0.03, 0.3, 0], fov: 26 }));
+  const end = () => { if (!drag) return; const m = drag.mode; drag = null; frame.classList.remove('dragging'); m === 'pan' ? hooks.panEnd?.() : hooks.dragEnd?.(); };
+  frame.addEventListener('pointerup', end); frame.addEventListener('pointercancel', end);
+  frame.addEventListener('dblclick', e => { if (pickAt(e.clientX, e.clientY) < 0) hooks.reset?.(); });
+  addEventListener('keydown', e => { if (e.key !== ' ' || editing()) return; e.preventDefault(); if (!e.repeat && !spaceHeld) { spaceHeld = true; spaceUsed = false; frame.classList.add('panning'); frame.classList.remove('over-phone'); } }, true);
+  const release = () => { spaceHeld = false; frame.classList.remove('panning'); };
+  addEventListener('keyup', e => { if (e.key === ' ') release(); }, true);
+  addEventListener('blur', release);
 }
+/* the home view, for resets */
+export function goHome(ms = 600) { glideTo({ cam: HOME.pos.toArray(), target: HOME.target.toArray(), prot: [0.03, 0.3, 0], fov: 26 }, ms); }
 
 /* ---------------------------------------------------------------- export renders */
 const xr = {};

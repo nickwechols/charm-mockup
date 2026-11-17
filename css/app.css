@@ -7,7 +7,7 @@ body{display:flex}
 #stage{position:relative;flex:1;min-width:0;display:grid;place-items:center;padding-bottom:64px}
 #frame{position:relative;overflow:hidden;border-radius:4px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.05),0 10px 36px rgba(0,0,0,.08);transition:width .3s var(--ease-ios),height .3s var(--ease-ios)}
 #frame canvas{display:block;cursor:grab;touch-action:none}
-#frame canvas.grabbing{cursor:grabbing}#frame canvas.pick{cursor:pointer}
+#frame.over-phone canvas{cursor:move}#frame.panning canvas{cursor:grab}#frame.dragging canvas,#frame.panning.dragging canvas{cursor:grabbing}
 #frame.check{background-color:#fff;background-image:linear-gradient(45deg,#ececea 25%,transparent 25%),linear-gradient(-45deg,#ececea 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ececea 75%),linear-gradient(-45deg,transparent 75%,#ececea 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}
 #drop{position:fixed;inset:0;z-index:50;display:none;place-items:center;background:rgba(43,140,255,.12);box-shadow:inset 0 0 0 3px #2b8cff;font-size:18px;font-weight:600;color:#1a5fb4;pointer-events:none}
 body.dragging #drop{display:grid}
@@ -247,3 +247,8 @@ body.phones-busy .frame3d{pointer-events:none}
 .st-swatches .st-sw-img[hidden]{display:none}
 .st-swatches .st-sw-up{background:#f1f1ee;color:var(--st-sub);font-size:15px;line-height:22px;text-align:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);transition:background .15s,color .15s}
 .st-swatches .st-sw-up:hover{background:#e6e6e2;color:var(--st-ink)}
+
+/* how to move things: a quiet line under the frame */
+.hint{position:absolute;left:0;right:0;bottom:66px;text-align:center;font-size:11.5px;color:#8a8a85;pointer-events:none;transition:opacity .3s}
+.hint b{font-weight:600;color:#5e5e5a}
+body.exporting .hint{opacity:0}

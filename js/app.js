@@ -54,7 +54,7 @@ const POSEFMT = { deg: v => Math.round(v) + '°', cm: v => (v > 0.04 ? '+' : '')
 
 /* ------------------------------------------------------------------ state */
 const ST = { tab: 'video', layout: 'single', poses: [P()], sel: 0, mirror: true, assign: [null], seq: 'orbit', autoLen: true, len: 8, zoom: 1, motion: 1, frame: 0, lockCam: false,
-  fmt: '9:16', vres: 1, fps: 30, angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
+  fmt: '9:16', vres: 1, fps: 30, pan: [0, 0], angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
   look: { lightPreset: 'studio', ...LIGHTS[0].v, backdrop: '#ffffff' } };
 try { const o = JSON.parse(localStorage.getItem('charm-mockup') || '{}'); Object.assign(ST, o, { look: { ...ST.look, ...(o.look || {}) } }); } catch {}
 const save = () => { try { localStorage.setItem('charm-mockup', JSON.stringify(ST)); } catch {} };
@@ -141,6 +141,7 @@ const partner = i => layoutOf(ST.layout).pairs === false ? -1 : (ST.poses.length
 const mirrorOf = p => ({ ...p, x: -p.x, ry: -p.ry, rz: -p.rz });
 function useLayout(id, keepMedia = true) {
   const L = layoutOf(id), was = ST.assign, ids = [...MEDIA.keys()];
+  HIST.length = 0; REDO.length = 0;
   ST.layout = L.id; ST.poses = L.phones.map(p => ({ ...p })); ST.sel = L.sel ?? Math.floor(ST.poses.length / 2);
   // keep what was on screen; new phones get the other uploads in turn
   const pool = [...was.filter(Boolean), ...ids.filter(x => !was.includes(x))];
@@ -257,9 +258,12 @@ panel.innerHTML = `
       <div class="st-multi">
         <div class="st-pick"></div>
         <p class="st-note">Click a phone, here or in the shot, to choose its screen and pose it.</p>
+      </div>
+      <h3 class="st-poseh">Position<span class="st-for"></span></h3>
         <div class="st-pose">${POSE.map(([k, l, a, b, s]) => slider(k, l, a, b, s, 'data-pose')).join('')}
           <label class="st-row st-mirror"><span>Mirror to phone <b class="st-mate"></b></span><input type="checkbox" data-mirror></label>
-          <button class="st-link" data-posereset>Reset this phone</button></div>
+          <button class="st-link" data-posereset>Reset this phone</button>
+          <p class="st-note">Or drag the phone in the shot: <b>drag</b> to move, <b>⌥ drag</b> to turn, <b>⇧ drag</b> for depth. Arrow keys nudge, <b>[ ]</b> resize, <b>⌘Z</b> undoes.</p></div>
       </div>
       <div class="st-row"><span>Finish</span><div class="st-swatches st-finish">${Object.entries(V.FINISHES).map(([id, f]) => `<button data-finish="${id}" title="${f.name}" style="background:#${f.frame.toString(16).padStart(6, '0')}"></button>`).join('')}</div></div>
       <label class="st-row"><span>Dynamic Island</span><input type="checkbox" data-island></label>
@@ -343,9 +347,11 @@ function renderPhones() {
   $$('[data-layout]', panel).forEach(b => b.classList.toggle('on', b.dataset.layout === ST.layout));
   $$('[data-finish]', panel).forEach(b => b.classList.toggle('on', b.dataset.finish === ST.finish));
   $('[data-island]', panel).checked = ST.island;
-  if (!multi) return;
-  $('.st-pick', panel).innerHTML = ST.poses.map((_, i) => { const m = MEDIA.get(ST.assign[i]); return `<button class="st-chip${i === ST.sel ? ' on' : ''}" data-phone="${i}">${m ? `<img src="${m.thumb}" alt="">` : ''}<b>${i + 1}</b></button>`; }).join('');
-  const p = ST.poses[ST.sel];
+  if (multi) $('.st-pick', panel).innerHTML = ST.poses.map((_, i) => { const m = MEDIA.get(ST.assign[i]); return `<button class="st-chip${i === ST.sel ? ' on' : ''}" data-phone="${i}">${m ? `<img src="${m.thumb}" alt="">` : ''}<b>${i + 1}</b></button>`; }).join('');
+  renderPose();
+}
+function renderPose() {
+  const p = ST.poses[ST.sel]; if (!p) return;
   POSE.forEach(([k, , , , , f]) => { const v = k[0] === 'r' ? p[k] / D2R : p[k], el = $(`[data-pose="${k}"]`, panel); if (document.activeElement !== el) el.value = v; $(`[data-out="${k}"]`, panel).textContent = POSEFMT[f](v); });
   const j = partner(ST.sel); $('.st-mirror', panel).hidden = j < 0; if (j >= 0) { $('.st-mate', panel).textContent = j + 1; $('[data-mirror]', panel).checked = ST.mirror; }
 }
@@ -428,7 +434,7 @@ panel.addEventListener('click', e => {
   if (t.closest('[data-madd]')) { fileTarget = ST.sel; return $('#mediaFile').click(); }
   const ly = t.closest('[data-layout]'); if (ly) return useLayout(ly.dataset.layout);
   const ph = t.closest('[data-phone]'); if (ph) return selectPhone(+ph.dataset.phone);
-  if (t.closest('[data-posereset]')) { const L = layoutOf(ST.layout), i = ST.sel, j = partner(i); [i, j].forEach(k => { if (k >= 0 && L.phones[k]) { ST.poses[k] = { ...L.phones[k] }; V.placePhone(k, ST.poses[k]); } }); save(); return renderPhones(); }
+  if (t.closest('[data-posereset]')) { pushHistory(); const L = layoutOf(ST.layout), i = ST.sel, j = partner(i); [i, j].forEach(k => { if (k >= 0 && L.phones[k]) { ST.poses[k] = { ...L.phones[k] }; V.placePhone(k, ST.poses[k]); } }); save(); return renderPhones(); }
   const fin = t.closest('[data-finish]'); if (fin) { ST.finish = fin.dataset.finish; V.setFinish(ST.finish); save(); return renderPhones(); }
   const sq = t.closest('[data-seq]'); if (sq) { ST.seq = sq.dataset.seq; save(); TL.t = 0; rebuild(); return play(); }
   const vd = t.closest('[data-vdel]'); if (vd) { e.stopPropagation(); ST.views = ST.views.filter(v => v.id !== vd.dataset.vdel); if (ST.angle === vd.dataset.vdel) ST.angle = 'front'; save(); return renderAngles(); }
@@ -459,10 +465,32 @@ panel.addEventListener('input', e => {
 /* transport */
 $('.tp-play', bar).onclick = () => TL.playing ? pause() : play();
 $('input', bar).addEventListener('input', e => seek(+e.target.value / 1000 * TL.T));
+const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && !['range', 'checkbox'].includes(a.type); };
+// Space: a tap plays / pauses; held while dragging it pans (scene.js), so act on release
+addEventListener('keyup', e => { if (e.key === ' ' && !typing() && ST.tab === 'video' && !V.spaceWasUsed()) { e.preventDefault(); TL.playing ? pause() : play(); } });
+/* keyboard positioning: arrows move, option+arrows turn, [ ] resize, shift for bigger steps; cmd+Z / shift+cmd+Z undo / redo */
+let lastNudge = 0;
 addEventListener('keydown', e => {
-  if (/INPUT|TEXTAREA/.test(document.activeElement?.tagName) && document.activeElement.type !== 'range') return;
-  if (e.key === ' ' && ST.tab === 'video') { e.preventDefault(); TL.playing ? pause() : play(); }
+  if (typing()) return;
+  if (document.activeElement?.type === 'range' && e.key.startsWith('Arrow')) return;   // a focused slider keeps its arrows
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); return e.shiftKey ? redo() : undo(); }
+  const big = e.shiftKey ? 5 : 1, p = ST.poses[ST.sel]; if (!p) return;
+  const turn = e.altKey, step = 0.1 * big, deg = 2 * big * D2R;
+  const m = { ArrowLeft: turn ? { ry: p.ry - deg } : { x: p.x - step }, ArrowRight: turn ? { ry: p.ry + deg } : { x: p.x + step },
+    ArrowUp: turn ? { rx: p.rx - deg } : { y: p.y + step }, ArrowDown: turn ? { rx: p.rx + deg } : { y: p.y - step },
+    '[': { s: clamp(p.s - 0.02 * big, 0.3, 2) }, ']': { s: clamp(p.s + 0.02 * big, 0.3, 2) }, '{': { s: clamp(p.s - 0.1, 0.3, 2) }, '}': { s: clamp(p.s + 0.1, 0.3, 2) } }[e.key];
+  if (!m) return;
+  e.preventDefault();
+  if (performance.now() - lastNudge > 700) pushHistory(); lastNudge = performance.now();
+  setPose(m); renderPose();
 });
+/* undo / redo for phone positions */
+const HIST = [], REDO = [];
+function pushHistory() { HIST.push(JSON.stringify(ST.poses)); if (HIST.length > 200) HIST.shift(); REDO.length = 0; }
+function restore(json) { ST.poses = JSON.parse(json); ST.poses.forEach((p, i) => V.placePhone(i, p)); save(); renderPhones(); }
+function undo() { if (!HIST.length) return toast('Nothing to undo'); REDO.push(JSON.stringify(ST.poses)); restore(HIST.pop()); }
+function redo() { if (!REDO.length) return; HIST.push(JSON.stringify(ST.poses)); restore(REDO.pop()); }
+panel.addEventListener('pointerdown', e => { if (e.target.matches('[data-pose]')) pushHistory(); });
 
 /* files: picker, drag and drop (onto a phone puts it on that phone) */
 let fileTarget = null;
@@ -490,7 +518,21 @@ addEventListener('drop', e => {
 /* ------------------------------------------------------------------ boot */
 (async () => {
   V.init($('#frame'));
-  V.setOnPick(i => selectPhone(i));
+  // direct manipulation in the shot (scene.js): select, drag, pan, unlock the camera to orbit, reset
+  Object.assign(V.hooks, {
+    pick: i => selectPhone(i),
+    dragStart: () => pushHistory(),
+    poseDrag: (i, patch) => { if (i !== ST.sel) selectPhone(i); setPose(patch); renderPose(); },
+    dragEnd: () => save(),
+    pan: (x, y) => { ST.pan = [x, y]; },
+    panEnd: () => save(),
+    orbit: () => { if (ST.tab === 'video' && !ST.lockCam && !TL.exporting) { pause(); ST.lockCam = true; V.freeAt(V.getView()); save(); renderControls(); toast('Camera locked here. Untick Lock camera to use the camera move again'); } },
+    reset: () => { ST.pan = [0, 0]; V.setPan(0, 0); save(); if (ST.tab === 'photo' || ST.lockCam) V.goHome(); else seek(TL.t); toast('View reset'); },
+  });
+  V.setPan(...(ST.pan || [0, 0]));
+  const hint = document.createElement('div'); hint.className = 'hint';
+  hint.innerHTML = '<b>Drag</b> a phone to move it · <b>⌥ drag</b> turns it · <b>⇧ drag</b> depth · <b>Space drag</b> pans · drag empty space to orbit · double-click empty space resets';
+  $('#stage').append(hint);
   V.setFinish(ST.finish); V.setIsland(ST.island); V.applyLook(ST.look);
   try { for (const rec of await db.all()) await loadMedia(rec).catch(e => console.warn(e)); } catch (e) { console.warn(e); }
   if (ST.customBg) { customBgUrl = await db.get('bg'); if (!customBgUrl) ST.customBg = false; }
