@@ -16,8 +16,31 @@ const LAYOUTS = [
   { id: 'row', name: 'Staggered', fit: 0.46, phones: [P(-9.2, 0.9), P(-4.6, -0.9), P(0, 0.9), P(4.6, -0.9), P(9.2, 0.9)] },
   { id: 'stack', name: 'Depth', fit: 0.7, pairs: false, sel: 0, phones: [P(-2.9, 0, 0, 0, 0.38), P(0.2, 0, -3.6, 0, 0.38), P(3.3, 0, -7.2, 0, 0.38)] },
 ];
-// camera moves; keys at u = 0..1 of the clip, stretched to its length
-const SEQS = [
+// camera moves. A key's time: u (fraction of the clip), s (seconds from the start), e (seconds before the end) or m (seconds
+// from the middle), plus optional `plus` seconds. Fixed seconds shrink to fit short clips, so a burst is a burst at any length.
+// ease (for the stretch arriving at a key): out = burst that brakes hard, in = ramp that accelerates away, inout = whip,
+// back = arrive with a little overshoot, smooth = gentle drift. No ease: a smooth spline through the keys.
+const REST = { ry: 0, rx: 0.03, rz: 0, dist: 24, camY: 0.4, tY: -0.05 };
+const RAMPS = [
+  { id: 'burst', name: 'Burst in', desc: 'Flies in spinning, brakes hard, drifts', ramp: true, keys: [
+    { s: 0, ry: 2.5, rx: -0.4, rz: 0.45, dist: 74, camY: 7, tY: 0.4 }, { s: 1.0, ease: 'out', ...REST, ry: -0.14, dist: 24.5 }, { u: 1, ease: 'smooth', ...REST, ry: 0.12, dist: 23 }] },
+  { id: 'spin', name: 'Spin in', desc: 'A full fast turn that settles to face you', ramp: true, keys: [
+    { s: 0, ry: -Math.PI * 2 - 0.5, rx: 0.12, dist: 34, camY: 2.2, tY: -0.3 }, { s: 1.4, ease: 'out', ...REST, ry: 0.16, dist: 24 }, { u: 1, ease: 'smooth', ...REST, ry: -0.14, dist: 23.5 }] },
+  { id: 'drop', name: 'Drop in', desc: 'Swoops down from above with a soft overshoot', ramp: true, keys: [
+    { s: 0, rx: 1.35, ry: 0.35, rz: -0.2, dist: 32, camY: 12, tY: -1.5 }, { s: 1.1, ease: 'back', ...REST, ry: 0.1 }, { u: 1, ease: 'smooth', ...REST, ry: -0.1, dist: 23.5 }] },
+  { id: 'rampout', name: 'Ramp out', desc: 'Holds, then accelerates away', ramp: true, keys: [
+    { u: 0, ...REST, ry: -0.15, dist: 24 }, { e: 1.0, ease: 'smooth', ...REST, ry: 0.08, dist: 23.5 }, { u: 1, ease: 'in', ry: -2.4, rx: 0.35, rz: -0.3, dist: 80, camY: -4, tY: 1 }] },
+  { id: 'inout', name: 'Burst in, ramp out', desc: 'Bursts in, drifts, accelerates away', ramp: true, keys: [
+    { s: 0, ry: 2.5, rx: -0.4, rz: 0.45, dist: 74, camY: 7, tY: 0.4 }, { s: 1.0, ease: 'out', ...REST, ry: -0.14, dist: 24.5 },
+    { e: 1.0, ease: 'smooth', ...REST, ry: 0.1, dist: 23 }, { u: 1, ease: 'in', ry: -2.4, rx: 0.35, rz: -0.3, dist: 80, camY: -4, tY: 1 }] },
+  { id: 'whip', name: 'Whip', desc: 'Drifts, whips across in the middle, drifts', ramp: true, keys: [
+    { u: 0, ...REST, ry: -0.5, dist: 24 }, { m: -0.22, ease: 'smooth', ...REST, ry: -0.38, dist: 24 }, { m: 0.22, ease: 'inout', ...REST, ry: 0.42, dist: 24 }, { u: 1, ease: 'smooth', ...REST, ry: 0.52, dist: 24 }] },
+  { id: 'punch', name: 'Punch in', desc: 'Snaps in close on the screen, then holds', ramp: true, keys: [
+    { u: 0, ...REST, ry: 0.22, dist: 24, camY: 0.8 }, { u: 0.25, ease: 'smooth', ...REST, ry: 0.16, dist: 23 }, { u: 0.25, plus: 0.45, ease: 'out', ...REST, ry: 0.02, dist: 12, camY: 1.7, tY: 1.5 }, { u: 1, ease: 'smooth', ...REST, ry: -0.06, dist: 11, camY: 1.7, tY: 1.5 }] },
+  { id: 'rise', name: 'Rise up', desc: 'Lifts from flat to upright with a ramp', ramp: true, keys: [
+    { s: 0, rx: -1.4, ry: 0.2, rz: 0.12, dist: 25, camY: 5, tY: -0.6 }, { s: 1.2, ease: 'back', ...REST, ry: 0.08 }, { u: 1, ease: 'smooth', ...REST, ry: -0.2, dist: 23.5 }] },
+];
+const SEQS = [...RAMPS,
   { id: 'still', name: 'Still', desc: 'Front on, no movement', keys: [{ u: 0, ry: 0, rx: 0.02, dist: 22.5, camY: 0.4, tY: -0.25 }, { u: 1, ry: 0, rx: 0.02, dist: 22.5, camY: 0.4, tY: -0.25 }] },
   { id: 'float', name: 'Float', desc: 'Straight on with a gentle float', keys: Array.from({ length: 7 }, (_, k) => ({ u: k / 6, ry: Math.sin(k * 1.1) * 0.07, rx: 0.02 + Math.cos(k * 0.9) * 0.025, dist: 22.5, camY: 0.4, tY: -0.25, py: Math.sin(k * 1.3) * 0.12 })) },
   { id: 'orbit', name: 'Hero orbit', desc: 'Slow three-quarter orbit', keys: [{ u: 0, ry: -0.62, rx: 0.08, dist: 24, camY: 1.2, tY: -0.25 }, { u: 0.5, ry: 0, rx: 0.02, dist: 21.5, camY: 0.5, tY: -0.25 }, { u: 1, ry: 0.58, rx: 0.07, dist: 23, camY: 1.0, tY: -0.25 }] },
@@ -54,7 +77,7 @@ const POSEFMT = { deg: v => Math.round(v) + '°', cm: v => (v > 0.04 ? '+' : '')
 
 /* ------------------------------------------------------------------ state */
 const ST = { tab: 'video', layout: 'single', poses: [P()], sel: 0, mirror: true, assign: [null], seq: 'orbit', autoLen: true, len: 8, zoom: 1, motion: 1, frame: 0, lockCam: false,
-  fmt: '9:16', vres: 1, fps: 30, pan: [0, 0], angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
+  fmt: '9:16', vres: 1, fps: 30, pan: [0, 0], blur: true, cleanDot: true, seq: 'burst', angle: 'front', views: [], pfmt: 'fit', pres: 4096, pbg: 'transparent', finish: 'natural', island: true, customBg: false,
   look: { lightPreset: 'studio', ...LIGHTS[0].v, backdrop: '#ffffff' } };
 try { const o = JSON.parse(localStorage.getItem('charm-mockup') || '{}'); Object.assign(ST, o, { look: { ...ST.look, ...(o.look || {}) } }); } catch {}
 const save = () => { try { localStorage.setItem('charm-mockup', JSON.stringify(ST)); } catch {} };
@@ -71,7 +94,12 @@ async function loadMedia(rec) {
   if (kind === 'video') {
     el = document.createElement('video'); Object.assign(el, { muted: true, loop: true, playsInline: true, preload: 'auto', src: url });
     await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = () => rej(new Error('Could not read ' + rec.name)); });
-    w = el.videoWidth; h = el.videoHeight; dur = el.duration || 0;
+    w = el.videoWidth; h = el.videoHeight; dur = el.duration;
+    if (!isFinite(dur)) {   // browser-recorded WebM reports Infinity until it has been seeked to the end
+      el.currentTime = 1e7; await new Promise(r => { const f = () => { el.removeEventListener('durationchange', f); r(); }; el.addEventListener('durationchange', f); setTimeout(r, 3000); });
+      dur = isFinite(el.duration) ? el.duration : 0;
+    }
+    dur = dur || 0;
     el.currentTime = Math.min(0.5, dur / 3); await new Promise(r => { el.onseeked = r; setTimeout(r, 1500); });
     const c = document.createElement('canvas'); c.height = 160; c.width = Math.round(160 * w / h); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); thumb = c.toDataURL('image/jpeg', 0.8);
     el.currentTime = 0;
@@ -109,12 +137,30 @@ const NEUTRAL = { rx: 0.03, ry: 0, rz: 0, camY: 0.6, tY: -0.2 };
 const length = () => ST.autoLen ? Math.max(0, ...assignedVideos().map(m => m.dur)) || ST.len : ST.len;
 function keysFor(T) {
   const seq = SEQS.find(s => s.id === ST.seq) || SEQS[0];
-  return seq.keys.map(k => { const o = { ...DEF, ...k, t: k.u * T }; for (const c of ['rx', 'ry', 'rz', 'camY', 'tY']) o[c] = NEUTRAL[c] + (o[c] - NEUTRAL[c]) * ST.motion; o.dist /= ST.zoom; return o; });
+  // fixed-second parts of the move take at most 40% of the clip; on short clips they shrink together
+  const fixed = Math.max(0, ...seq.keys.map(k => k.s ?? 0), ...seq.keys.map(k => k.e ?? 0), ...seq.keys.map(k => Math.abs(k.m ?? 0) * 2 + (k.plus ?? 0)));
+  const sc = fixed ? Math.min(1, T * 0.4 / fixed) : 1;
+  let prev = 0;
+  return seq.keys.map(k => {
+    let t = k.s != null ? k.s * sc : k.e != null ? T - k.e * sc : k.m != null ? T / 2 + k.m * sc : (k.u ?? 0) * T;
+    t = clamp(t + (k.plus ?? 0) * sc, prev, T); prev = t;
+    const o = { ...DEF, ...k, t };
+    for (const c of ['rx', 'ry', 'rz', 'camY', 'tY']) o[c] = NEUTRAL[c] + (o[c] - NEUTRAL[c]) * ST.motion;
+    o.dist /= ST.zoom; return o;
+  });
 }
+const EASE = {
+  out: u => (1 - Math.pow(2, -10 * u)) / (1 - Math.pow(2, -10)),
+  in: u => (Math.pow(2, 10 * u) - 1) / (Math.pow(2, 10) - 1),
+  inout: u => u < 0.5 ? EASE.in(u * 2) / 2 : 0.5 + EASE.out(u * 2 - 1) / 2,
+  back: u => { const c1 = 1.25, c3 = c1 + 1, v = u - 1; return 1 + c3 * v * v * v + c1 * v * v; },
+  smooth: u => u * u * (3 - 2 * u),
+};
 function camAt(K, t) {
   if (t <= K[0].t) return K[0]; if (t >= K[K.length - 1].t) return K[K.length - 1];
   let i = 0; while (K[i + 1].t < t) i++;
-  const a = K[i], b = K[i + 1], h = b.t - a.t, u = (t - a.t) / h, pv = K[i - 1], nx = K[i + 2], o = {};
+  const a = K[i], b = K[i + 1], h = b.t - a.t, u = h > 1e-6 ? (t - a.t) / h : 1, pv = K[i - 1], nx = K[i + 2], o = {};
+  if (b.ease) { const e = EASE[b.ease](u); for (const c of CH) o[c] = a[c] + (b[c] - a[c]) * e; return o; }   // ramp: eased straight line
   for (const c of CH) { const m0 = pv ? (b[c] - pv[c]) / (b.t - pv.t) * h : 0, m1 = nx ? (nx[c] - a[c]) / (nx.t - a.t) * h : 0, u2 = u * u, u3 = u2 * u;
     o[c] = (2 * u3 - 3 * u2 + 1) * a[c] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * b[c] + (u3 - u2) * m1; }
   return o;
@@ -188,8 +234,16 @@ async function exportVideo() {
       if (TL.cancel || err) break;
       const t = f / fps;
       await Promise.all(vids.map(m => seekTo(m.el, m.dur ? t % m.dur : 0))); V.refreshVideos();
-      const big = V.renderFrame(w * ss, h * ss, lockView || camAt(TL.K, t), bg);
-      let src = big; if (ss > 1) { g.drawImage(big, 0, 0, w, h); src = out; }
+      let n = 1;
+      if (ST.blur && !lockView) { const a = camAt(TL.K, t), b = camAt(TL.K, t + 1 / fps);
+        const sp = Math.abs(b.ry - a.ry) * 30 + Math.abs(b.rx - a.rx) * 30 + Math.abs(b.rz - a.rz) * 30 + Math.abs(b.dist - a.dist) * 0.9 + Math.abs(b.camY - a.camY) * 0.9 + Math.abs(b.tY - a.tY) * 0.9;
+        n = clamp(Math.ceil(sp * 6), 1, 10); }
+      let src;
+      if (n === 1) { const big = V.renderFrame(w * ss, h * ss, lockView || camAt(TL.K, t), bg); src = big; if (ss > 1) { g.drawImage(big, 0, 0, w, h); src = out; } }
+      else {   // average n renders spread over half a frame (a 180 degree shutter)
+        for (let j = 0; j < n; j++) { const tj = t + (j / (n - 1) - 0.5) * 0.5 / fps; const big = V.renderFrame(w * ss, h * ss, camAt(TL.K, clamp(tj, 0, TL.T)), bg); g.globalAlpha = 1 / (j + 1); g.drawImage(big, 0, 0, w, h); }
+        g.globalAlpha = 1; src = out;
+      }
       const fr = new VideoFrame(src, { timestamp: Math.round(f * 1e6 / fps), duration: Math.round(1e6 / fps) });
       enc.encode(fr, { keyFrame: f % (fps * 2) === 0 }); fr.close();
       while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 4));
@@ -271,8 +325,10 @@ panel.innerHTML = `
     <div class="st-pane" data-pane="video">
       <section><h3>Camera move</h3><div class="st-seqs"></div></section>
       <section><h3>Length</h3>
-        <label class="st-row"><span>Match the screen recording</span><input type="checkbox" data-autolen></label>
+        <div class="st-row"><span>Video length</span>${seg('lenp', [['rec', 'Recording'], [5, '5s'], [10, '10s'], [15, '15s'], [30, '30s']])}</div>
         <div class="st-lenrow">${slider('len', 'Seconds', 2, 60, 0.5, 'data-ui')}</div>
+        <label class="st-row"><span>Motion blur on fast moves</span><input type="checkbox" data-blur></label>
+        <label class="st-row"><span>Hide recording dot</span><input type="checkbox" data-cleandot></label>
         <label class="st-row"><span>Lock camera</span><input type="checkbox" data-lockcam></label>
         <p class="st-note st-lock-note">Drag or zoom to place the camera; the screens keep playing and the camera stays put.</p>
         <div class="st-row"><span>Framing</span>${seg('frame', [[-1, 'Left'], [0, 'Center'], [1, 'Right']])}</div>
@@ -356,7 +412,8 @@ function renderPose() {
   const j = partner(ST.sel); $('.st-mirror', panel).hidden = j < 0; if (j >= 0) { $('.st-mate', panel).textContent = j + 1; $('[data-mirror]', panel).checked = ST.mirror; }
 }
 function renderSeqs() {
-  $('.st-seqs', panel).innerHTML = SEQS.map(s => `<button class="st-seq${s.id === ST.seq ? ' on' : ''}" data-seq="${s.id}"><span><b>${s.name}</b><small>${s.desc}</small></span><em>${TL.T.toFixed(1)}s</em></button>`).join('');
+  const item = s => `<button class="st-seq${s.id === ST.seq ? ' on' : ''}" data-seq="${s.id}"><span><b>${s.name}</b><small>${s.desc}</small></span><em>${TL.T.toFixed(1)}s</em></button>`;
+  $('.st-seqs', panel).innerHTML = `<h4 class="st-sub">Speed ramps</h4>${SEQS.filter(s => s.ramp).map(item).join('')}<h4 class="st-sub">Steady</h4>${SEQS.filter(s => !s.ramp).map(item).join('')}`;
 }
 function renderAngles() {
   $('.st-angles', panel).innerHTML = [...ANGLES, ...ST.views].map(a => `<button class="st-angle${a.id === ST.angle ? ' on' : ''}" data-angle="${a.id}"><span>${a.name}</span>${a.view ? `<i data-vdel="${a.id}" title="Remove">×</i>` : ''}</button>`).join('');
@@ -364,9 +421,11 @@ function renderAngles() {
 const FMT = { pct: v => Math.round(v * 100) + '%', s: v => (+v).toFixed(1) + 's' };
 function renderControls() {
   panel.dataset.tab = ST.tab; $$('[data-tab]', panel).forEach(b => b.classList.toggle('on', b.dataset.tab === ST.tab));
+  ST.lenp = ST.autoLen ? 'rec' : String(ST.len);
   $$('.st-seg', panel).forEach(g => $$('button', g).forEach(b => b.classList.toggle('on', String(ST[g.dataset.group]) === b.dataset.v)));
   for (const k of ['zoom', 'motion', 'len']) { const el = $(`[data-ui="${k}"]`, panel); el.value = ST[k]; $(`[data-out="${k}"]`, panel).textContent = k === 'len' ? FMT.s(k === 'len' && ST.autoLen ? TL.T : ST[k]) : FMT.pct(ST[k]); }
-  $('[data-autolen]', panel).checked = ST.autoLen; $('.st-lenrow', panel).classList.toggle('off', ST.autoLen && assignedVideos().length > 0);
+  $('.st-lenrow', panel).classList.toggle('off', ST.autoLen && assignedVideos().length > 0);
+  $('[data-blur]', panel).checked = ST.blur; $('[data-cleandot]', panel).checked = ST.cleanDot;
   $('[data-lockcam]', panel).checked = ST.lockCam; panel.classList.toggle('cam-locked', ST.lockCam);
   const bgOpts = ST.tab === 'photo' ? [['transparent', 'Transparent'], ...BGS] : BGS, cur = ST.tab === 'photo' ? ST.pbg : ST.look.backdrop;
   const custom = ST.customBg && customBgUrl ? [['custom', 'Your photo']] : [];
@@ -444,6 +503,7 @@ panel.addEventListener('click', e => {
   const bg = t.closest('[data-bg]'); if (bg) { if (ST.tab === 'photo') ST.pbg = bg.dataset.bg; else setLook({ backdrop: bg.dataset.bg }); save(); renderControls(); return frameFor(); }
   const lp = t.closest('[data-lp]'); if (lp) return setLook({ lightPreset: lp.dataset.lp, ...LIGHTS.find(l => l.id === lp.dataset.lp).v });
   const sb = t.closest('.st-seg button');
+  if (sb && sb.parentNode.dataset.group === 'lenp') { const v = sb.dataset.v; if (v === 'rec') ST.autoLen = true; else { ST.autoLen = false; ST.len = +v; } save(); rebuild(); return renderControls(); }
   if (sb) { const g = sb.parentNode.dataset.group; ST[g] = ['fps', 'pres', 'frame', 'vres'].includes(g) ? +sb.dataset.v : sb.dataset.v; save(); renderControls(); return frameFor(); }
   const d = t.closest('[data-do]'); if (d) return d.dataset.do === 'video' ? exportVideo() : exportPhoto();
   if (t.closest('.st-cancel')) TL.cancel = true;
@@ -452,7 +512,8 @@ panel.addEventListener('change', e => {
   const t = e.target;
   if (t.matches('[data-mirror]')) { ST.mirror = t.checked; const j = partner(ST.sel); if (ST.mirror && j >= 0) { ST.poses[j] = mirrorOf(ST.poses[ST.sel]); V.placePhone(j, ST.poses[j]); } save(); return; }
   if (t.matches('[data-island]')) { ST.island = t.checked; V.setIsland(ST.island); return save(); }
-  if (t.matches('[data-autolen]')) { ST.autoLen = t.checked; save(); rebuild(); return renderControls(); }
+  if (t.matches('[data-blur]')) { ST.blur = t.checked; return save(); }
+  if (t.matches('[data-cleandot]')) { ST.cleanDot = t.checked; V.setCleanDot(ST.cleanDot); return save(); }
   if (t.matches('[data-lockcam]')) { ST.lockCam = t.checked; save(); if (ST.lockCam && V.hasPose()) V.freeAt(V.getView()); else seek(TL.t); return renderControls(); }
 });
 panel.addEventListener('input', e => {
@@ -533,7 +594,7 @@ addEventListener('drop', e => {
   const hint = document.createElement('div'); hint.className = 'hint';
   hint.innerHTML = '<b>Drag</b> a phone to move it · <b>⌥ drag</b> turns it · <b>⇧ drag</b> depth · <b>Space drag</b> pans · drag empty space to orbit · double-click empty space resets';
   $('#stage').append(hint);
-  V.setFinish(ST.finish); V.setIsland(ST.island); V.applyLook(ST.look);
+  V.setFinish(ST.finish); V.setIsland(ST.island); V.applyLook(ST.look); V.setCleanDot(ST.cleanDot);
   try { for (const rec of await db.all()) await loadMedia(rec).catch(e => console.warn(e)); } catch (e) { console.warn(e); }
   if (ST.customBg) { customBgUrl = await db.get('bg'); if (!customBgUrl) ST.customBg = false; }
   if (ST.look.backdrop === 'custom' && !customBgUrl) ST.look.backdrop = '#ffffff';

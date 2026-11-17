@@ -133,10 +133,48 @@ function placeholderTex() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+/* ---------------------------------------------------------------- the screen: hide iOS's red screen-recording dot
+   Screen recordings can carry a red recording dot near the top. In the top band of the recording, a strongly red pixel is
+   replaced with the nearest non-red colour beside it (so a dot on a white or black status bar just disappears). */
+const cleanU = { value: 1 };
+export function setCleanDot(on) { cleanU.value = on ? 1 : 0; markDirty(); }
+const RED = 'c.r > 0.42 && c.r - max( c.g, c.b ) > 0.26';
+function cleanShader(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uClean = cleanU;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>
+uniform float uClean;
+#ifdef USE_MAP
+vec4 texMap( vec2 uv ) { vec4 c = texture2D( map, uv );
+  #ifdef DECODE_VIDEO_TEXTURE
+  c = sRGBTransferEOTF( c );
+  #endif
+  return c; }
+bool isRed( vec4 c ) { return ${RED}; }
+#endif`)
+      .replace('#include <map_fragment>', `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texMap( vMapUv );
+  if ( uClean > 0.5 && vMapUv.y > 0.925 && isRed( sampledDiffuseColor ) ) {
+    vec4 fill = vec4( 0.0, 0.0, 0.0, 1.0 ); bool found = false;
+    for ( int k = 1; k <= 8; k ++ ) {
+      float d = float( k ) * 0.011;
+      vec4 l = texMap( vMapUv - vec2( d, 0.0 ) ), r = texMap( vMapUv + vec2( d, 0.0 ) );
+      if ( ! found && ! isRed( l ) ) { fill = l; found = true; }
+      if ( ! found && ! isRed( r ) ) { fill = r; found = true; }
+    }
+    sampledDiffuseColor = fill;
+  }
+  diffuseColor *= sampledDiffuseColor;
+#endif`);
+  };
+  mat.customProgramCacheKey = () => 'screen-clean';
+}
+
 /* ---------------------------------------------------------------- phones */
 function makePhone() {
   const g = new THREE.Group(); g.add(template.clone());
-  const mat = new THREE.MeshBasicMaterial({ map: placeholder, toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ map: placeholder, toneMapped: false }); cleanShader(mat);
   const screen = new THREE.Mesh(screenGeo, mat); screen.position.z = FZ + 0.4;
   const isl = new THREE.Mesh(islandMesh, new THREE.MeshBasicMaterial({ color: 0x000000 })); isl.position.set(0, H / 2 - 11 - 18.5, FZ + 0.45); isl.visible = island;
   const glass = new THREE.Mesh(screenGeo, glassMat); glass.position.z = FZ + 0.5;
