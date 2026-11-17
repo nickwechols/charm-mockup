@@ -323,7 +323,9 @@ panel.innerHTML = `
       <label class="st-row"><span>Dynamic Island</span><input type="checkbox" data-island></label>
     </section>
     <div class="st-pane" data-pane="video">
-      <section><h3>Camera move</h3><div class="st-seqs"></div></section>
+      <section><h3>Camera move</h3>
+        <p class="st-lockwarn">The camera is locked, so moves don't play. <button data-unlock>Unlock</button></p>
+        <div class="st-seqs"></div></section>
       <section><h3>Length</h3>
         <div class="st-row"><span>Video length</span>${seg('lenp', [['rec', 'Recording'], [5, '5s'], [10, '10s'], [15, '15s'], [30, '30s']])}</div>
         <div class="st-lenrow">${slider('len', 'Seconds', 2, 60, 0.5, 'data-ui')}</div>
@@ -495,7 +497,9 @@ panel.addEventListener('click', e => {
   const ph = t.closest('[data-phone]'); if (ph) return selectPhone(+ph.dataset.phone);
   if (t.closest('[data-posereset]')) { pushHistory(); const L = layoutOf(ST.layout), i = ST.sel, j = partner(i); [i, j].forEach(k => { if (k >= 0 && L.phones[k]) { ST.poses[k] = { ...L.phones[k] }; V.placePhone(k, ST.poses[k]); } }); save(); return renderPhones(); }
   const fin = t.closest('[data-finish]'); if (fin) { ST.finish = fin.dataset.finish; V.setFinish(ST.finish); save(); return renderPhones(); }
-  const sq = t.closest('[data-seq]'); if (sq) { ST.seq = sq.dataset.seq; save(); TL.t = 0; rebuild(); return play(); }
+  // picking a move means "play this move": a locked camera (easy to lock by dragging empty space) would ignore it
+  const sq = t.closest('[data-seq]'); if (sq) { ST.seq = sq.dataset.seq; ST.lockCam = false; save(); renderControls(); TL.t = 0; rebuild(); return play(); }
+  if (t.closest('[data-unlock]')) { ST.lockCam = false; save(); renderControls(); return seek(TL.t); }
   const vd = t.closest('[data-vdel]'); if (vd) { e.stopPropagation(); ST.views = ST.views.filter(v => v.id !== vd.dataset.vdel); if (ST.angle === vd.dataset.vdel) ST.angle = 'front'; save(); return renderAngles(); }
   const an = t.closest('[data-angle]'); if (an) return goAngle(an.dataset.angle);
   if (t.closest('[data-saveview]')) { ST.views.push({ id: 'v' + Date.now().toString(36), name: `My angle ${ST.views.length + 1}`, view: V.currentView() }); ST.angle = ST.views.at(-1).id; save(); renderAngles(); return toast('Angle saved'); }
