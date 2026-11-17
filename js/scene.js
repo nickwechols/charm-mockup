@@ -139,7 +139,8 @@ function placeholderTex() {
    replaced with the nearest non-red colour beside it (so a dot on a white or black status bar just disappears). */
 const cleanU = { value: 1 };
 export function setCleanDot(on) { cleanU.value = on ? 1 : 0; markDirty(); }
-const RED = 'c.r > 0.42 && c.r - max( c.g, c.b ) > 0.26';
+// red by brightness OR by hue: the dot's soft edge blends into the black pill as dark red, which only the hue test catches
+const RED = '( c.r - max( c.g, c.b ) > 0.22 ) || ( c.r > 0.008 && c.r > 2.0 * max( c.g, c.b ) )';
 function cleanShader(mat) {
   mat.onBeforeCompile = sh => {
     sh.uniforms.uClean = cleanU;
@@ -147,7 +148,8 @@ function cleanShader(mat) {
       .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>
 uniform float uClean;
 #ifdef USE_MAP
-vec4 texMap( vec2 uv ) { vec4 c = texture2D( map, uv );
+// explicit gradients: lookups inside a branch can't work out the texture's zoom and would read a tiny, blurred mip level
+vec4 texMap( vec2 uv, vec2 gx, vec2 gy ) { vec4 c = textureGrad( map, uv, gx, gy );
   #ifdef DECODE_VIDEO_TEXTURE
   c = sRGBTransferEOTF( c );
   #endif
@@ -155,12 +157,13 @@ vec4 texMap( vec2 uv ) { vec4 c = texture2D( map, uv );
 bool isRed( vec4 c ) { return ${RED}; }
 #endif`)
       .replace('#include <map_fragment>', `#ifdef USE_MAP
-  vec4 sampledDiffuseColor = texMap( vMapUv );
+  vec2 gx = dFdx( vMapUv ), gy = dFdy( vMapUv );   // taken here, outside any branch
+  vec4 sampledDiffuseColor = texMap( vMapUv, gx, gy );
   if ( uClean > 0.5 && vMapUv.y > 0.925 && isRed( sampledDiffuseColor ) ) {
     vec4 fill = vec4( 0.0, 0.0, 0.0, 1.0 ); bool found = false;
     for ( int k = 1; k <= 8; k ++ ) {
       float d = float( k ) * 0.011;
-      vec4 l = texMap( vMapUv - vec2( d, 0.0 ) ), r = texMap( vMapUv + vec2( d, 0.0 ) );
+      vec4 l = texMap( vMapUv - vec2( d, 0.0 ), gx, gy ), r = texMap( vMapUv + vec2( d, 0.0 ), gx, gy );
       if ( ! found && ! isRed( l ) ) { fill = l; found = true; }
       if ( ! found && ! isRed( r ) ) { fill = r; found = true; }
     }
