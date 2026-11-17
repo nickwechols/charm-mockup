@@ -350,7 +350,6 @@ panel.innerHTML = `
           <label class="st-row st-mirror"><span>Mirror to phone <b class="st-mate"></b></span><input type="checkbox" data-mirror></label>
           <button class="st-link" data-posereset>Reset this phone</button>
           <p class="st-note">Or drag the phone in the shot: <b>drag</b> to move, <b>⌥ drag</b> to turn, <b>⇧ drag</b> for depth. Arrow keys nudge, <b>[ ]</b> resize, <b>⌘Z</b> undoes.</p></div>
-      </div>
       <div class="st-row"><span>Finish</span><div class="st-swatches st-finish">${Object.entries(V.FINISHES).map(([id, f]) => `<button data-finish="${id}" title="${f.name}" style="background:#${f.frame.toString(16).padStart(6, '0')}"></button>`).join('')}</div></div>
       <label class="st-row"><span>Dynamic Island</span><input type="checkbox" data-island></label>
     </section>
@@ -502,7 +501,7 @@ function renderProgress(f, total, eta, kind) {
 }
 const bar = $('#bar');
 function renderTransport() {
-  bar.classList.toggle('playing', TL.playing); bar.style.visibility = ST.tab === 'video' ? '' : 'hidden';
+  bar.classList.toggle('playing', TL.playing); bar.classList.toggle('photo', ST.tab !== 'video');   // Photo keeps the bar for Center / Face front
   const f = TL.T ? clamp(TL.t / TL.T, 0, 1) : 0;
   $('.tp-track i', bar).style.transform = `scaleX(${f})`;
   if (document.activeElement !== $('input', bar)) $('input', bar).value = Math.round(f * 1000);
@@ -577,6 +576,8 @@ panel.addEventListener('input', e => {
 
 /* transport */
 $('.tp-play', bar).onclick = () => TL.playing ? pause() : play();
+$('[data-center]', bar).onclick = () => centerPhone();
+$('[data-facefront]', bar).onclick = () => faceFront();
 $('input', bar).addEventListener('input', e => seek(+e.target.value / 1000 * TL.T));
 const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && !['range', 'checkbox'].includes(a.type); };
 // Space: a tap plays / pauses; held while dragging it pans (scene.js), so act on release
@@ -673,5 +674,5 @@ addEventListener('drop', e => {
   renderMedia(); renderPhones(); renderAngles(); renderControls();
   rebuild(); frameFor();
   if (ST.tab === 'photo') goAngle(ST.angle); else seek(0);
-  window.charm = { ST, TL, MEDIA, play, pause, seek, exportVideo, exportPhoto, useLayout, assign };
+  window.charm = { V, ST, TL, MEDIA, play, pause, seek, exportVideo, exportPhoto, useLayout, assign };
 })();

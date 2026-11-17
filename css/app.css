@@ -34,7 +34,7 @@ body.studio-open .pop{left:calc(50% + 160px)}
 .st-x{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--st-sub)}
 .st-x:hover{background:var(--st-sel);color:var(--st-ink)}
 .st-x svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;fill:none}
-.st-scroll{flex:1;overflow-y:auto;padding:0 10px 12px}
+.st-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 10px 12px}   /* min-height:0 lets the flex child scroll instead of growing */
 #studio section{padding:10px 0 6px}
 #studio section+section{border-top:1px solid var(--st-line)}
 #studio h3{font-size:12.5px;font-weight:600;color:var(--st-sub);padding:2px 8px 8px}
@@ -283,3 +283,13 @@ body.exporting .hint{opacity:0}
 .st-posebtns button+button{background:#ecece8;color:var(--st-ink)}
 .st-posebtns button:hover{opacity:.85}
 .st-posebtns button:active{transform:scale(.96)}
+
+/* bottom bar: Center / Face front, always there */
+.tp-sep{width:1px;height:20px;background:#e3e3df;margin:0 2px}
+.tp-btn{height:30px;padding:0 12px;white-space:nowrap;border-radius:9px;font-size:12.5px;font-weight:600;background:#f1f1ee;color:#161616;transition:background .15s,transform .1s}
+.tp-btn:hover{background:#e6e6e2}
+.tp-btn:active{transform:scale(.96)}
+.tp-btn[data-center]{background:#161616;color:#fff}
+.tp-btn[data-center]:hover{background:#333}
+#bar.photo .tp-play,#bar.photo .tp-track,#bar.photo .tp-time,#bar.photo .tp-sep{display:none}
+#bar.photo{padding-left:8px}

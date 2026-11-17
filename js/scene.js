@@ -39,7 +39,7 @@ function makeBody(w, h, r, depth, rb) {
   return [g, front, back];
 }
 
-let renderer, scene, camera, controls, rig, template, floor, key, rim, wrapEl;
+let renderer, scene, camera, controls, rig, inner, template, floor, key, rim, wrapEl;
 let screenGeo, glassMat, islandMesh, selGeo, selMat, hitGeo, hitMat, placeholder, mats;
 const phones = []; let sel = 0, fit = 1, needsRender = true, island = true;
 const floorFade = { value: new THREE.Vector2(1, 1) };
@@ -72,6 +72,7 @@ export function init(host) {
   controls.addEventListener('change', markDirty);
 
   rig = new THREE.Group(); scene.add(rig);
+  inner = new THREE.Group(); rig.add(inner);   // phones go in here, shifted so the rig's origin is their centre
   buildTemplate();
   screenGeo = new THREE.ShapeGeometry(squircle(W, H, R_SCREEN), 1);
   const p = screenGeo.attributes.position, uvs = new Float32Array(p.count * 2);
@@ -184,10 +185,10 @@ function makePhone() {
   return { g, screen, mat, isl, ring, hit, pose: null, media: null };
 }
 export function setPhones(list, f = 1, s = 0) {
-  while (phones.length > list.length) { const p = phones.pop(); rig.remove(p.g); p.mat.dispose(); }
-  while (phones.length < list.length) { const p = makePhone(); phones.push(p); rig.add(p.g); }
+  while (phones.length > list.length) { const p = phones.pop(); inner.remove(p.g); p.mat.dispose(); }
+  while (phones.length < list.length) { const p = makePhone(); phones.push(p); inner.add(p.g); }
   list.forEach((pose, i) => placePhone(i, pose));
-  fit = f; rig.scale.setScalar(f); select(Math.min(s, phones.length - 1));
+  const df = f / (fit || 1); rig.position.multiplyScalar(df); fit = f; rig.scale.setScalar(f); updatePivot(); select(Math.min(s, phones.length - 1));
 }
 export function placePhone(i, pose) {
   const p = phones[i]; if (!p) return;
@@ -195,7 +196,23 @@ export function placePhone(i, pose) {
   p.g.position.set(p.pose.x, p.pose.y, p.pose.z); p.g.rotation.set(p.pose.rx, p.pose.ry, p.pose.rz); p.g.scale.setScalar(U * p.pose.s);
   layoutChanged();
 }
+/* pivot: the centre of the phones (their positions, in layout units). Spins, flips and turns happen around it, so a phone
+   spins about its own centre wherever it sits. When it moves, the rig shifts to compensate, so nothing jumps on screen. */
+const pivot = new THREE.Vector3(); let pivotHeld = false;
+const base = () => [pivot.x * fit, pivot.y * fit, pivot.z * fit];   // the rig's resting position
+function updatePivot() {
+  if (pivotHeld || !phones.length) return;
+  const lo = new THREE.Vector3(Infinity, Infinity, Infinity), hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  for (const p of phones) if (p.pose) { lo.min(new THREE.Vector3(p.pose.x, p.pose.y, p.pose.z)); hi.max(new THREE.Vector3(p.pose.x, p.pose.y, p.pose.z)); }
+  if (lo.x === Infinity) return;
+  const c = lo.add(hi).multiplyScalar(0.5), d = c.clone().sub(pivot);
+  if (d.lengthSq() < 1e-12) return;
+  pivot.copy(c); inner.position.copy(pivot).multiplyScalar(-1);
+  rig.position.add(d.multiplyScalar(fit).applyQuaternion(rig.quaternion));   // keep every phone exactly where it was
+  markDirty();
+}
 function layoutChanged() {
+  updatePivot();
   let minY = Infinity, ex = 0, ez = 0;
   for (const p of phones) { if (!p.pose) continue; const k = p.pose.s; minY = Math.min(minY, p.pose.y - OH / 2 * U * k); ex = Math.max(ex, Math.abs(p.pose.x) + OW / 2 * U * k); ez = Math.max(ez, Math.abs(p.pose.z)); }
   if (minY === Infinity) return;
@@ -231,9 +248,18 @@ export function setFinish(id) { const f = FINISHES[id] || FINISHES.natural; mats
 /* ---------------------------------------------------------------- look: lighting + backdrop */
 const D2R = Math.PI / 180, lerp3 = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
 let floorBase = 0.34;
+/* The floor is invisible apart from the shadow it catches. If an animation carries a phone down through it (fall, drop,
+   flip, a steep tilt), the floor sits between the camera and the phone and its shadow paints over the phone. So the shadow
+   fades out as soon as any phone dips below the floor, and also fades as phones fly far above it (a contact shadow). */
+const fb = new THREE.Box3();
+function phonesLowY() { rig.updateMatrixWorld(); fb.makeEmpty(); for (const p of phones) fb.expandByObject(p.hit, true); return fb.isEmpty() ? floor.position.y : fb.min.y; }
 function fadeFloor(cam = camera) {
   const d = cam.position.clone().sub(floor.position), s = d.y / Math.max(1e-3, d.length());
-  const k = Math.min(1, Math.max(0, (s - 0.06) / 0.3)); floor.material.opacity = floorBase * (0.25 + 0.75 * k * k * (3 - 2 * k));
+  const k = Math.min(1, Math.max(0, (s - 0.06) / 0.3));
+  const gap = (phonesLowY() - floor.position.y) / Math.max(0.2, fit);       // in phone-sized units: < 0 = through the floor
+  const contact = gap < 0.05 ? Math.max(0, 1 - (0.05 - gap) / 0.35) : Math.max(0, Math.min(1, 1 - (gap - 1.5) / 7));
+  floor.material.opacity = floorBase * (0.25 + 0.75 * k * k * (3 - 2 * k)) * contact;
+  floor.visible = floorBase > 0.005 && contact > 0.003;
 }
 export function applyLook(l) {
   look = { ...look, ...l };
@@ -260,8 +286,8 @@ export function paintBg(g, w, h, v) {
 /* ---------------------------------------------------------------- camera */
 let pose = null, glide = null, shift = 0, panX = 0, panY = 0;   // pan: framing offset as a fraction of the frame (Space-drag), exported too
 export function applyPose(p) {
-  if (p.cam) { rig.rotation.set(...p.prot); rig.position.set(...(p.ppos || [0, 0, 0])); camera.position.set(...p.cam); camera.fov = p.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(...p.target); return; }
-  rig.rotation.set(p.rx, p.ry, p.rz); rig.position.set(p.px || 0, p.py || 0, 0);
+  if (p.cam) { rig.rotation.set(...p.prot); rig.position.set(...(p.ppos || base())); camera.position.set(...p.cam); camera.fov = p.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(...p.target); return; }
+  rig.rotation.set(p.rx, p.ry, p.rz); const b0 = base(); rig.position.set((p.px || 0) + b0[0], (p.py || 0) + b0[1], b0[2]);
   camera.position.set(0, p.camY, p.dist); camera.fov = p.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(0, p.tY, 0);
 }
 export function setPose(p) { pose = p; controls.enabled = !p; if (p) applyPose(p); markDirty(); }
@@ -273,7 +299,7 @@ export function getView() {
   if (pose) { const dir = new THREE.Vector3(); camera.getWorldDirection(dir); target = camera.position.clone().add(dir.multiplyScalar(camera.position.distanceTo(rig.position))); }
   return { cam: camera.position.toArray(), target: target.toArray(), prot: [rig.rotation.x, rig.rotation.y, rig.rotation.z], fov: camera.fov, ppos: rig.position.toArray() };
 }
-export function freeAt(v) { pose = null; glide = null; controls.enabled = true; rig.rotation.set(...v.prot); rig.position.set(...(v.ppos || [0, 0, 0])); camera.position.fromArray(v.cam); controls.target.fromArray(v.target); camera.fov = v.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(controls.target); markDirty(); }
+export function freeAt(v) { pose = null; glide = null; controls.enabled = true; rig.rotation.set(...v.prot); rig.position.set(...(v.ppos || base())); camera.position.fromArray(v.cam); controls.target.fromArray(v.target); camera.fov = v.fov || 26; camera.updateProjectionMatrix(); camera.lookAt(controls.target); markDirty(); }
 /* centre of all phones, in world space */
 function phonesCenter() { rig.updateMatrixWorld(); const b = new THREE.Box3(); phones.forEach(p => b.expandByObject(p.hit)); return b.getCenter(new THREE.Vector3()); }
 /* keep the camera's angle, slide it so the phones sit in the middle of the frame */
@@ -288,7 +314,7 @@ export function faceCamera(ms = 550) {
 }
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 export function glideTo(p, ms = 700) {
-  pose = null; controls.enabled = true; rig.position.set(0, 0, 0);
+  pose = null; controls.enabled = true; rig.position.set(...base());
   const a = currentView(), b = poseToView(p), t0 = performance.now(), L = (x, y, k) => x + (y - x) * k;
   glide = now => {
     const k = Math.min(1, (now - t0) / ms), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
@@ -354,11 +380,11 @@ function initInteract() {
       const h = hitAt(e.clientX, e.clientY);
       if (!h) { if (pose) hooks.orbit?.(); return; }            // empty space: OrbitControls takes it (after an unlock, if a camera move was driving)
       if (h.i !== sel) hooks.pick?.(h.i);
-      hooks.dragStart?.();
+      hooks.dragStart?.(); pivotHeld = true;
       const p = phones[h.i].pose;
       if (e.altKey) drag = { mode: 'turn', i: h.i, x: e.clientX, y: e.clientY, pose: { ...p } };
       else if (e.shiftKey) drag = { mode: 'depth', i: h.i, y: e.clientY, pose: { ...p } };
-      else { plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), h.point); drag = { mode: 'move', i: h.i, start: rig.worldToLocal(h.point.clone()), pose: { ...p } }; }
+      else { plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), h.point); drag = { mode: 'move', i: h.i, start: inner.worldToLocal(h.point.clone()), pose: { ...p } }; }
     }
     e.stopPropagation(); e.preventDefault(); frame.setPointerCapture(e.pointerId); frame.classList.add('dragging');
   }, true);
@@ -368,10 +394,10 @@ function initInteract() {
     if (drag.mode === 'turn') return hooks.poseDrag?.(drag.i, { ry: drag.pose.ry + (e.clientX - drag.x) * 0.006, rx: cl(drag.pose.rx + (e.clientY - drag.y) * 0.006, -1.5, 1.5) });
     if (drag.mode === 'depth') return hooks.poseDrag?.(drag.i, { z: cl(drag.pose.z + (e.clientY - drag.y) * 0.04, -20, 10) });
     if (!castAt(e.clientX, e.clientY).ray.intersectPlane(plane, hp)) return;
-    const l = rig.worldToLocal(hp.clone());
+    const l = inner.worldToLocal(hp.clone());
     hooks.poseDrag?.(drag.i, { x: drag.pose.x + l.x - drag.start.x, y: drag.pose.y + l.y - drag.start.y, z: drag.pose.z + l.z - drag.start.z });
   });
-  const end = () => { if (!drag) return; const m = drag.mode; drag = null; frame.classList.remove('dragging'); m === 'pan' ? hooks.panEnd?.() : hooks.dragEnd?.(); };
+  const end = () => { if (!drag) return; const m = drag.mode; drag = null; frame.classList.remove('dragging'); if (pivotHeld) { pivotHeld = false; updatePivot(); } m === 'pan' ? hooks.panEnd?.() : hooks.dragEnd?.(); };
   frame.addEventListener('pointerup', end); frame.addEventListener('pointercancel', end);
   frame.addEventListener('dblclick', e => { if (pickAt(e.clientX, e.clientY) < 0) hooks.reset?.(); });
   addEventListener('keydown', e => { if (e.key !== ' ' || editing()) return; e.preventDefault(); if (!e.repeat && !spaceHeld) { spaceHeld = true; spaceUsed = false; frame.classList.add('panning'); frame.classList.remove('over-phone'); } }, true);
